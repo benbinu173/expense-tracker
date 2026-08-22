@@ -1,26 +1,586 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
+/*
+ * Design system — "Aurora".
+ *
+ * The idea: a violet→teal brand spine over cool paper, with one gradient surface
+ * per screen carrying the headline figure. Colourful, but the colour is
+ * organised — every hue in here has exactly one job, and the jobs don't overlap.
+ *
+ * The rule worth defending, unchanged from the monochrome version this replaces:
+ * `--income` and `--expense` are the only *semantic* colours. A primary button is
+ * brand violet, never green, because a green "Save" reads as income. Category
+ * hues are identity, not meaning, and they deliberately avoid the red and green
+ * bands so a dot can't be mistaken for a direction.
+ *
+ * Every value is a raw variable on :root, remapped into Tailwind's namespaces by
+ * `@theme inline` below. `inline` matters: it makes utilities emit `var(--ink)`
+ * rather than baking in the literal, which is what lets the dark block below swap
+ * themes without generating a second copy of every utility.
+ *
+ * Contrast is checked, not eyeballed. Every ratio noted below is white-on-surface
+ * or text-on-paper, computed against WCAG 2.1. If you change a value, recompute:
+ * the tight ones are `--ink-3` and the teal end of `--gradient-hero`.
+ */
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+:root {
+  color-scheme: light dark;
+
+  /* Surfaces. Cool white rather than warm paper — it's what lets violet sit on
+   * the page without looking like it's fighting the background. */
+  --paper: #f8f8fd;
+  --raised: #ffffff;
+  --sunken: #f1f1fa;
+
+  /* Text, three steps. Indigo-blacks, so the ink relates to the brand. */
+  --ink: #14142b; /* 17.0:1 on paper */
+  --ink-2: #4a4a66; /* 8.1:1 */
+  --ink-3: #6c6c88; /* 4.8:1 on paper, 5.1:1 on raised — AA, deliberately */
+
+  /* Rules. `rule` is the hairline default; `rule-strong` is for real division. */
+  --rule: #e6e6f2;
+  --rule-strong: #d2d2e6;
+
+  /*
+   * Brand. Five tokens, one job each — keeping them separate is what stops
+   * "the purple" from being used as text where it fails contrast, or as a
+   * surface where it swallows its own label.
+   */
+  --brand: #5b4bdb; /* surface only; carries --brand-fg at 6.0:1 */
+  --brand-strong: #4a3ac4; /* hover / pressed surface */
+  --brand-soft: #efedfe; /* tinted surface — active nav, chips, wash */
+  --brand-fg: #ffffff; /* the only text colour allowed on --brand */
+
+  /*
+   * The inverse pair, read backwards: brand *as ink* on a `--brand-fg` surface —
+   * the button that sits on the gradient hero, where violet-on-violet would vanish.
+   *
+   * Deliberately absent from the dark block. Its surface is white in both themes,
+   * so its foreground must be too: letting it track `--brand` (which lifts in dark
+   * for legibility *against* dark) drops it to 4.1:1 on hover. 7.8:1 flat, 6.5:1 at
+   * the worst hover blend, in both themes.
+   */
+  --brand-ink: #4a3ac4;
+
+  /* Brand as *text*: focus rings and links. Never a surface — that's --brand. */
+  --accent: #5b4bdb; /* 5.7:1 on paper */
+
+  /* Money direction. Deep enough for AA on both paper and raised. */
+  --income: #0f7a45; /* 5.1:1 */
+  --expense: #b42318; /* 6.2:1 */
+
+  /*
+   * Category identity — eight hues, assigned by `lib/category-color.ts` so a
+   * category looks the same everywhere. Each clears 3:1 against paper as a
+   * non-text graphic. Hues are 253/229/197/175/33/293/324/44; income sits at
+   * 150 and expense at 4, so nothing here can be read as a direction.
+   */
+  --cat-1: #7c5cf5;
+  --cat-2: #4763e4;
+  --cat-3: #0e93c7;
+  --cat-4: #0d9488;
+  --cat-5: #c2690a;
+  --cat-6: #9d4ea8;
+  --cat-7: #c2418f;
+  --cat-8: #8a7a4e;
+
+  /*
+   * The one gradient surface, for the headline figure. Every stop carries white
+   * text: 11.0:1, 6.3:1, 5.5:1 left to right. The teal has to stay this deep —
+   * a brighter one drops the right-hand end below AA.
+   *
+   * Which sets the rule for anything placed on it: **text on the hero is full
+   * white**, and hierarchy comes from size and tracking, not opacity. A
+   * `white/70` rubric measures 3.5:1 over the teal end and fails.
+   *
+   * 200% background-size leaves room for `--animate-drift` to move through it.
+   */
+  --gradient-hero: linear-gradient(115deg, #4c1d95 0%, #4f46e5 52%, #0f766e 100%);
+
+  /*
+   * The spine: the same violet→teal run, condensed into a rule. It's the hero
+   * gradient's echo at 2px, used under page titles so a screen with no hero panel
+   * still carries the brand. Its own token because a rule is opaque at small size
+   * and can take brighter stops than a surface holding white text can.
+   */
+  --gradient-spine: linear-gradient(90deg, #5b4bdb 0%, #0d9488 100%);
+
+  /*
+   * Page backdrop. Reads the brand tokens rather than literals, so the dark
+   * block only has to restate the alpha, not the hues.
+   */
+  --glow-1: 22%;
+  --glow-2: 16%;
+
+  --shadow-card: 0 1px 2px rgb(20 20 43 / 0.05), 0 1px 1px rgb(20 20 43 / 0.03);
+  --shadow-pop: 0 4px 6px -1px rgb(20 20 43 / 0.08), 0 2px 4px -2px rgb(20 20 43 / 0.05);
+  --shadow-lift: 0 10px 20px -8px rgb(20 20 43 / 0.16), 0 3px 8px -4px rgb(20 20 43 / 0.08);
+  --shadow-brand: 0 8px 20px -8px rgb(91 75 219 / 0.55);
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+    --paper: #0e0e18;
+    --raised: #17172a;
+    --sunken: #0a0a12;
+
+    --ink: #f0f0f8; /* 16.9:1 on paper */
+    --ink-2: #b4b4cc; /* 8.7:1 on raised */
+    --ink-3: #8a8aa6; /* 5.3:1 on raised */
+
+    --rule: #262640;
+    --rule-strong: #363654;
+
+    /* Lifted: the light-mode violet is too dark to read as a surface here, and
+     * too dark to read as text against it. Both roles move, independently. */
+    --brand: #6d5ce8; /* white text at 4.8:1 */
+    --brand-strong: #7f70f0;
+    --brand-soft: #211f3d;
+    --brand-fg: #ffffff;
+    /* --brand-ink is intentionally not restated here — see its comment above. */
+
+    --accent: #a99cff; /* 7.5:1 on raised */
+
+    /* Lightened: the light-mode green and red go muddy on a dark ground. */
+    --income: #4ade9b;
+    --expense: #ff8f83;
+
+    /* Same hues, lifted for a dark ground. All ≥6:1 as dots. */
+    --cat-1: #9c85ff;
+    --cat-2: #7590ff;
+    --cat-3: #3fb6e6;
+    --cat-4: #2fbfae;
+    --cat-5: #f0a13a;
+    --cat-6: #c67fd0;
+    --cat-7: #ea74ad;
+    --cat-8: #bfae7c;
+
+    /* Lifted stops — the light-mode gradient is nearly black against #0e0e18 —
+     * but only as far as white text allows: 9.0:1, 5.5:1, 5.0:1. A brighter teal
+     * looks better against the page and fails the label sitting on it. */
+    --gradient-hero: linear-gradient(115deg, #5b21b6 0%, #5b52ea 52%, #107d73 100%);
+
+    --gradient-spine: linear-gradient(90deg, #7f70f0 0%, #2fbfae 100%);
+
+    /* Glows have to work harder against a dark ground. */
+    --glow-1: 30%;
+    --glow-2: 22%;
+
+    /* Shadows don't read on dark. Separation comes from `raised` + `rule`. */
+    --shadow-card: none;
+    --shadow-pop: 0 4px 12px -2px rgb(0 0 0 / 0.55);
+    --shadow-lift: 0 12px 28px -10px rgb(0 0 0 / 0.7);
+    --shadow-brand: 0 8px 22px -10px rgb(109 92 232 / 0.8);
   }
 }
 
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+@theme inline {
+  --color-paper: var(--paper);
+  --color-raised: var(--raised);
+  --color-sunken: var(--sunken);
+
+  --color-ink: var(--ink);
+  --color-ink-2: var(--ink-2);
+  --color-ink-3: var(--ink-3);
+
+  --color-rule: var(--rule);
+  --color-rule-strong: var(--rule-strong);
+
+  --color-brand: var(--brand);
+  --color-brand-strong: var(--brand-strong);
+  --color-brand-soft: var(--brand-soft);
+  --color-brand-fg: var(--brand-fg);
+  --color-brand-ink: var(--brand-ink);
+
+  --color-income: var(--income);
+  --color-expense: var(--expense);
+  --color-accent: var(--accent);
+
+  --color-cat-1: var(--cat-1);
+  --color-cat-2: var(--cat-2);
+  --color-cat-3: var(--cat-3);
+  --color-cat-4: var(--cat-4);
+  --color-cat-5: var(--cat-5);
+  --color-cat-6: var(--cat-6);
+  --color-cat-7: var(--cat-7);
+  --color-cat-8: var(--cat-8);
+
+  --shadow-card: var(--shadow-card);
+  --shadow-pop: var(--shadow-pop);
+  --shadow-lift: var(--shadow-lift);
+  --shadow-brand: var(--shadow-brand);
+
+  /* Three roles, three faces: serif displays, sans instructs, mono tabulates. */
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+  --font-display: var(--font-instrument-serif);
+
+  /* Softer than the old editorial radii, but still short of consumer-app round. */
+  --radius-sm: 5px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+
+  /* Display sizes for hero figures. Negative tracking: serifs at size need it. */
+  --text-figure: 2.25rem;
+  --text-figure--line-height: 1.1;
+  --text-figure--letter-spacing: -0.02em;
+  --text-hero: 3rem;
+  --text-hero--line-height: 1.05;
+  --text-hero--letter-spacing: -0.025em;
+}
+
+/*
+ * Motion tokens.
+ *
+ * A second `@theme` block, and deliberately *not* `inline`: non-inline emits the
+ * variables as real custom properties on :root, which is what lets an
+ * `--animate-*` value reference `var(--ease-out-quart)`. Under `inline` the
+ * easings would be substituted away and never exist at runtime.
+ *
+ * Shape follows Tailwind's own theme.css, where `--animate-*` sits beside its
+ * nested `@keyframes` — see node_modules/tailwindcss/theme.css.
+ */
+@theme {
+  --ease-out-quart: cubic-bezier(0.25, 1, 0.5, 1);
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+
+  --animate-fade-in: fade-in 0.3s var(--ease-out-quart) both;
+  --animate-fade-rise: fade-rise 0.5s var(--ease-out-quart) both;
+  --animate-pop-in: pop-in 0.26s var(--ease-spring) both;
+  --animate-sheen: sheen 1.5s var(--ease-out-quart) 0.4s both;
+  --animate-drift: drift 2.4s var(--ease-out-quart) both;
+  --animate-shake: shake 0.35s ease-in-out both;
+
+  @keyframes fade-in {
+    from {
+      opacity: 0;
+    }
+  }
+
+  /* The workhorse: everything that arrives on screen arrives this way. */
+  @keyframes fade-rise {
+    from {
+      opacity: 0;
+      transform: translateY(0.75rem);
+    }
+  }
+
+  @keyframes pop-in {
+    from {
+      opacity: 0;
+      transform: scale(0.96) translateY(0.5rem);
+    }
+  }
+
+  /* A single light sweep across the hero panel on arrival. Runs once — a loop
+   * turns the one thing you want read into something that twitches. */
+  @keyframes sheen {
+    from {
+      transform: translateX(-140%) skewX(-14deg);
+    }
+    to {
+      transform: translateX(320%) skewX(-14deg);
+    }
+  }
+
+  /*
+   * The gradient settles into place once, on arrival — it does not loop.
+   * `background-position` isn't compositor-driven, so an infinite version
+   * repaints a full-width panel every frame for as long as the tab is open.
+   * Runs from the far end of the 200% background to the resting 0% 50%.
+   */
+  @keyframes drift {
+    from {
+      background-position: 100% 50%;
+    }
+  }
+
+  @keyframes shake {
+    25% {
+      transform: translateX(-4px);
+    }
+    50% {
+      transform: translateX(4px);
+    }
+    75% {
+      transform: translateX(-2px);
+    }
+  }
+}
+
+/*
+ * Money. Mono is doing real work here, not decoration: digits are the same width,
+ * so amounts right-align into a true column and don't jitter when a value
+ * changes. Use this on every rendered amount — see `components/money.tsx`.
+ */
+@utility figure {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+}
+
+/* Hero figures: the serif, for the single headline number on a screen. */
+@utility figure-display {
+  font-family: var(--font-display);
+  font-variant-numeric: tabular-nums lining-nums;
+}
+
+/*
+ * One focus treatment, everywhere. `:focus-visible` rather than `:focus` so a
+ * mouse click doesn't leave a ring behind — keyboard users still get one.
+ */
+@utility focus-ring {
+  &:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+}
+
+/* Inset variant, for controls flush against a container edge. */
+@utility focus-ring-inset {
+  &:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: -2px;
+  }
+}
+
+/*
+ * For a wrapper that owns the visible box while a child owns the focus — the
+ * amount field, where `₹` sits inside the same outline as the input.
+ *
+ * This one gets the halo as well as the ring. Field wrappers have no shadow of
+ * their own, so there's nothing for `box-shadow` to trample; on a card or a
+ * button it would wipe out `shadow-card`, which is why the two rings above stay
+ * outline-only.
+ */
+@utility focus-ring-within {
+  &:has(:focus-visible) {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+    box-shadow: 0 0 0 4px color-mix(in oklab, var(--accent) 16%, transparent);
+  }
+}
+
+/* The gradient surface. One per screen, holding that screen's headline figure. */
+@utility surface-hero {
+  background-image: var(--gradient-hero);
+  background-size: 200% 200%;
+  background-position: 0% 50%;
+  color: var(--brand-fg);
+}
+
+/* The hero gradient at rule scale, for the underscore beneath a page title. */
+@utility surface-spine {
+  background-image: var(--gradient-spine);
+}
+
+/*
+ * The page backdrop: two soft brand glows, fixed behind everything. Reads the
+ * brand tokens rather than literals, so it re-tints itself in dark mode.
+ */
+@utility surface-aurora {
+  background-image:
+    radial-gradient(
+      60rem 40rem at 8% -12%,
+      color-mix(in oklab, var(--brand) var(--glow-1), transparent),
+      transparent 70%
+    ),
+    radial-gradient(
+      52rem 36rem at 100% 4%,
+      color-mix(in oklab, var(--cat-4) var(--glow-2), transparent),
+      transparent 70%
+    );
+}
+
+/*
+ * Entrance choreography for a container's direct children, so a page animates in
+ * without every page file having to opt each block in. Applied once, in the app
+ * layout, to `main`.
+ */
+@utility stagger-children {
+  & > * {
+    animation: var(--animate-fade-rise);
+  }
+  & > *:nth-child(2) {
+    animation-delay: 70ms;
+  }
+  & > *:nth-child(3) {
+    animation-delay: 140ms;
+  }
+  & > *:nth-child(4) {
+    animation-delay: 210ms;
+  }
+  /* Anything past the fourth block shares a delay — a page with eight sections
+   * shouldn't take a second and a half to finish arriving. */
+  & > *:nth-child(n + 5) {
+    animation-delay: 260ms;
+  }
+}
+
+/*
+ * The same idea for list rows, faster and shallower. The delay is capped at the
+ * eighth row on purpose: a year-long period can render hundreds, and a
+ * per-row delay would still be animating long after you'd started reading.
+ */
+@utility stagger-rows {
+  & > * {
+    animation: var(--animate-fade-in);
+  }
+  & > *:nth-child(2) {
+    animation-delay: 30ms;
+  }
+  & > *:nth-child(3) {
+    animation-delay: 60ms;
+  }
+  & > *:nth-child(4) {
+    animation-delay: 90ms;
+  }
+  & > *:nth-child(5) {
+    animation-delay: 120ms;
+  }
+  & > *:nth-child(6) {
+    animation-delay: 150ms;
+  }
+  & > *:nth-child(7) {
+    animation-delay: 180ms;
+  }
+  & > *:nth-child(n + 8) {
+    animation-delay: 210ms;
+  }
+}
+
+/* Hover lift for cards that are themselves interactive. Its own utility so the
+ * reduced-motion block below can cancel exactly this and nothing else. */
+@utility lift {
+  transition:
+    transform 0.2s var(--ease-out-quart),
+    box-shadow 0.2s var(--ease-out-quart);
+
+  &:hover {
+    transform: translateY(-2px);
+    box-shadow: var(--shadow-lift);
+  }
+}
+
+/*
+ * Enter animation for a native `<dialog>` opened with `showModal()`, panel and
+ * backdrop together.
+ *
+ * A keyframe can't do this: the dialog goes from `display: none` to `display:
+ * block`, and a discrete property change normally cancels the transition outright.
+ * `transition-behavior: allow-discrete` defers the `display` flip to the end of the
+ * transition, and `@starting-style` supplies the before-open values that otherwise
+ * don't exist for an element that was never rendered.
+ *
+ * Enter only, on purpose. Animating the close means the panel is still on screen
+ * after you've committed to deleting a row, which reads as the click not landing.
+ */
+@utility dialog-enter {
+  transition:
+    opacity 0.22s var(--ease-out-quart),
+    transform 0.22s var(--ease-out-quart),
+    display 0.22s allow-discrete,
+    overlay 0.22s allow-discrete;
+
+  &[open] {
+    opacity: 1;
+    transform: scale(1);
+  }
+
+  @starting-style {
+    &[open] {
+      opacity: 0;
+      transform: scale(0.96);
+    }
+  }
+
+  &::backdrop {
+    transition:
+      background-color 0.22s var(--ease-out-quart),
+      display 0.22s allow-discrete,
+      overlay 0.22s allow-discrete;
+  }
+
+  &[open]::backdrop {
+    background-color: rgb(0 0 0 / 0.45);
+  }
+
+  @starting-style {
+    &[open]::backdrop {
+      background-color: rgb(0 0 0 / 0);
+    }
+  }
+}
+
+@layer base {
+  ::selection {
+    background: color-mix(in oklab, var(--accent) 24%, transparent);
+  }
+
+  /* Keep the serif from being pressed into service as body text. */
+  .font-display {
+    font-weight: 400;
+  }
+
+  /*
+   * Native select popup.
+   *
+   * The option list is drawn by the browser, and it takes its background from the
+   * `<select>`'s own `background-color`. A transparent select leaves Chrome nothing
+   * to use and it falls back to white — jarring in dark mode, and flat in light
+   * where it has no relationship to the field it dropped out of. So the colours are
+   * stated explicitly rather than left to the platform, and `select-field.tsx` keeps
+   * a real `bg-raised` instead of `bg-transparent`.
+   *
+   * `appearance-none` on the control doesn't reach the popup, which is why this has
+   * to be an element rule here rather than a utility at the call site.
+   */
+  select option {
+    background-color: var(--raised);
+    color: var(--ink);
+  }
+
+  /* The "Choose a category" placeholder — present but not a real answer. */
+  select option:disabled {
+    color: var(--ink-3);
+  }
+
+  /*
+   * Native date pickers, selects, and scrollbars follow `color-scheme` on :root —
+   * without it they stay light-on-light in dark mode. This just nudges the
+   * spinner on the date input, which Chrome tints separately.
+   */
+  input[type="date"]::-webkit-calendar-picker-indicator {
+    cursor: pointer;
+    opacity: 0.55;
+  }
+
+  input[type="date"]::-webkit-calendar-picker-indicator:hover {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+
+  /*
+   * The rule above collapses durations, which is enough for the keyframes here —
+   * every one of them animates *from* an offset *to* the natural state, so at
+   * zero duration they land in the right place rather than freezing mid-move.
+   *
+   * Hover transforms are the exception: they'd still displace the element, just
+   * instantly. Cancelled by name rather than with a blanket `transform: none`,
+   * which would break every `-translate-x-1/2` used for centring.
+   */
+  .lift:hover {
+    transform: none;
+  }
 }
