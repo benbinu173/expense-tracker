@@ -51,7 +51,11 @@ docs bundled in `node_modules/next/dist/docs/` rather than working from memory.
 
 - **`profiles`** — `id` (PK, FK→auth.users), `display_name`, `created_at`
 - **`categories`** — `id`, `user_id`, `name`, `type` (`'income'|'expense'`), `created_at`
-  - `unique (user_id, type, name)`, `unique (user_id, id, type)`
+  - `unique (user_id, type, lower(name))` — **case-insensitive**, so "food" collides with
+    "Food" rather than splitting one category into two rows in the breakdown. It's a unique
+    _index_, not a constraint, because an expression key can't be one. `type` being in the
+    key is what lets `Other` exist once per direction, which the seeded set relies on.
+  - `unique (user_id, id, type)` — the target of the composite FK below
 - **`transactions`** — `id`, `user_id`, `type` (`'income'|'expense'`), `amount_paise`
   (`bigint`, `> 0`), `occurred_on` (`date`), `category_id`, `note` (≤200 chars),
   `created_at`, `updated_at`
@@ -503,9 +507,30 @@ Email confirmation still reads **on** in the Supabase project (`mailer_autoconfi
 false`) as of 19 Aug 2026, despite an attempt to disable it — the dashboard change likely
 wasn't saved. So signup returns no session and the user must click an emailed link. The
 signup action handles both settings either way, and `app/auth/confirm/route.ts` accepts
-both the `?code=` and `?token_hash=&type=` link shapes. The signed-in happy path has not
-been exercised end to end yet — every protected route is confirmed to 307 to `/login` when
-anonymous, but nothing past the login form has been driven by a real session.
+both the `?code=` and `?token_hash=&type=` link shapes.
+
+**What a real session has actually exercised**, read off the live database on 22 Aug 2026
+rather than assumed — this replaces an earlier note claiming nothing past the login form
+had ever run:
+
+- **Signup, the emailed confirmation, and login all work.** One account, created
+  19 Aug 11:46:01 and confirmed 11:46:17 — sixteen seconds later, so the link was
+  genuinely clicked — with `last_sign_in_at` of 21 Aug 15:31.
+- **The signup trigger fired.** `users=1, profiles=1, missing=0`, and the account holds
+  all **fourteen** seeded categories (9 expense + 5 income). Note fourteen, not twelve:
+  `Other` is seeded once per direction. `lib/category-color.test.ts` had a `SEEDED`
+  fixture that disagreed with the migration (it said `Gifts`, and omitted both `Other`
+  rows) — corrected, and it now cites the migration it's copied from.
+- **Add and edit both ran through the form.** Four transactions at four distinct
+  `created_at` seconds spread over two minutes, which is form entry and not a bulk
+  insert, and one of the four has `updated_at` past `created_at`, so the edit action has
+  committed a real change.
+- **RLS is on with policies attached** — `transactions` 4, `categories` 4, `profiles` 3.
+- **Not yet exercised by a session:** delete (of either kind — a deleted row leaves no
+  trace to probe), every write on `/categories` (all fourteen categories are pristine
+  seeds, so add, rename and delete have never run), and the whole of step 12's dashboard,
+  which shipped after that last sign-in. The account's four transactions all fall in
+  August 2026, so the current month renders with real rows rather than the empty state.
 
 1. **Scaffold** — `create-next-app` (TS, Tailwind, App Router), ESLint + Prettier,
    strict `tsconfig`, base layout shell.

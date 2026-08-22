@@ -2,8 +2,20 @@ import { describe, expect, it } from "vitest";
 
 import { CATEGORY_COLOR_COUNT, categoryColorIndex, categoryFillClass } from "./category-color";
 
-// The names the signup trigger seeds, which is what most accounts will show.
+/**
+ * The names the signup trigger seeds, which is what most accounts will show.
+ *
+ * Copied from `supabase/migrations/20260819000000_init.sql` and kept in step with
+ * it — nine expense, five income. "Other" is seeded once per direction, so the
+ * fourteen rows are thirteen distinct names, and the two Others share a hue on
+ * purpose: the hash is keyed on the name, which is the whole point of it.
+ */
 const SEEDED = [
+  "Salary",
+  "Freelance",
+  "Interest",
+  "Gift",
+  "Other",
   "Food",
   "Groceries",
   "Rent",
@@ -12,10 +24,6 @@ const SEEDED = [
   "Health",
   "Shopping",
   "Entertainment",
-  "Salary",
-  "Freelance",
-  "Interest",
-  "Gifts",
 ];
 
 describe("categoryColorIndex", () => {
@@ -42,7 +50,7 @@ describe("categoryColorIndex", () => {
 
   it("spreads real category names across the palette", () => {
     // A hash that returned a constant would pass every test above. This is the
-    // one that would catch it: twelve names should not land on two hues.
+    // one that would catch it: thirteen names should not land on two hues.
     const used = new Set(SEEDED.map(categoryColorIndex));
 
     expect(used.size).toBeGreaterThanOrEqual(5);
