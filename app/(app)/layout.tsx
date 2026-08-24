@@ -73,6 +73,31 @@ export default async function AppLayout({ children }: LayoutProps<"/">) {
        */}
       <div aria-hidden className="surface-aurora pointer-events-none fixed inset-0 -z-10" />
 
+      {/*
+       * The skip link, and it has to be the first focusable thing in the document:
+       * the rail puts the wordmark, four destinations, the account link and Sign out
+       * ahead of the content, so a keyboard user tabs seven times before reaching the
+       * page on every single navigation.
+       *
+       * Parked off-screen with a transform rather than `sr-only` + `focus:not-sr-only`.
+       * `not-sr-only` sets `position: static` and would then have to be beaten by a
+       * `fixed` in the same variant — two utilities fighting over one property, where
+       * the winner is whichever Tailwind emits last. Toggling `translate` moves one
+       * property in one direction and can't be ambiguous. It also keeps the link in
+       * the accessibility tree at all times, which is the point of it.
+       *
+       * `focus-visible`, not `focus`: nothing but a keyboard can reach this, and the
+       * narrower pseudo-class means a stray programmatic focus can't flash it onto
+       * the screen. The 150ms slide is collapsed by the reduced-motion block, which
+       * covers `transition-duration` as well as animations.
+       */}
+      <a
+        href="#main"
+        className="focus-ring bg-raised border-rule-strong shadow-pop ease-out-quart fixed top-3 left-3 z-50 -translate-y-16 rounded-md border px-4 py-2 text-sm font-medium transition-transform duration-150 focus-visible:translate-y-0"
+      >
+        Skip to content
+      </a>
+
       <aside className="border-rule bg-raised/85 hidden w-60 shrink-0 flex-col gap-6 border-r px-3 py-5 backdrop-blur-sm md:sticky md:top-0 md:flex md:h-dvh">
         <div className="px-2.5">
           <Wordmark />
@@ -107,8 +132,17 @@ export default async function AppLayout({ children }: LayoutProps<"/">) {
          * gets the same entrance choreography for free and no page file has to
          * opt each block in. `pb-24` clears the fixed tab bar; from `md` up there
          * isn't one.
+         *
+         * `tabIndex={-1}` is what the skip link needs: browsers set the sequential
+         * focus starting point on a fragment target, but only actually *focus* it if
+         * it's focusable, and a screen reader cursor that hasn't moved makes the link
+         * look like it did nothing.
          */}
-        <main className="stagger-children mx-auto flex w-full max-w-4xl flex-1 flex-col gap-6 px-5 py-7 pb-24 sm:px-6 md:py-10 md:pb-12">
+        <main
+          id="main"
+          tabIndex={-1}
+          className="stagger-children mx-auto flex w-full max-w-4xl flex-1 flex-col gap-6 px-5 py-7 pb-24 outline-none sm:px-6 md:py-10 md:pb-12"
+        >
           {children}
         </main>
       </div>

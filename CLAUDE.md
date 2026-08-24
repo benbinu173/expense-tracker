@@ -280,10 +280,10 @@ custom properties, which is what lets an `--animate-*` value reference
 
 Work top to bottom. Each step should end with the app running.
 
-**Status:** steps 1–13 done, plus step 14's mobile pass. Scaffold + tooling; Supabase
-clients and `proxy.ts`; auth (signup, login, logout, redirects); `lib/money.ts` +
-`lib/period.ts`; add, list, edit and delete transactions; the period balance summary; the
-categories page; the dashboard; the account page — 106 passing tests.
+**Status:** steps 1–14 done; step 15 (deploy) is all that's left. Scaffold +
+tooling; Supabase clients and `proxy.ts`; auth (signup, login, logout, redirects);
+`lib/money.ts` + `lib/period.ts`; add, list, edit and delete transactions; the period balance
+summary; the categories page; the dashboard; the account page — 106 passing tests.
 Step 3 is complete — the migration is applied and verified (tables exist, RLS refuses
 anonymous writes), `lib/database.types.ts` is generated, and the `Database` generic is
 wired into both Supabase clients, so `.from(...)` queries are typed and allowed.
@@ -494,8 +494,9 @@ so they're written down:
   bar's class would be a lie.
 - `app/dev/page.tsx` gained a **temporary** breakdown preview against fixed figures — the
   only way to look at the chart without a session, covering the rounds-to-0% row, the
-  three-equal-thirds case, and the empty state. It goes with the rest of that page at step
-  14, along with its import of `app/(app)/category-breakdown.tsx`.
+  three-equal-thirds case, and the empty state. **Deleted with the rest of `app/dev/` at
+  step 14**, along with its import of `app/(app)/category-breakdown.tsx`. Those three cases
+  now have no fixture anywhere, so re-checking the chart's geometry means real rows.
 
 Step 13 made `/account` writable — an editable display name and a change-password form.
 **It needed no migration**: `profiles_update_own` and
@@ -608,9 +609,172 @@ spec; four other controls hadn't followed it.
 - `TransactionRow` was already exactly 44px on a note-less row (`text-sm` at 20px line
   height + `py-3`), which is worth knowing before anyone trims that padding.
 
-Step 14 still owes: route-level `loading.tsx` / `error.tsx` / `not-found.tsx` (there are
-**none** anywhere in `app/`, so `notFound()` in the edit page currently renders a bare 404
-with no app shell), the rest of the accessibility sweep, and deleting `app/dev/`.
+**Step 14's route boundaries are done** (24 Aug 2026) — five files, no dependencies, no
+changes to any existing component. `app/(app)/` gets `error.tsx`, `not-found.tsx` and
+`loading.tsx`; the root gets `error.tsx` and `not-found.tsx`. Reading the bundled docs first
+changed the code, so the findings are worth not re-deriving:
+
+- **The prop is `retry`, not `reset`.** `error.md`'s version history says "`v16.3.0` |
+  `retry` prop became stable" — exactly this project's version — and the shipped runtime at
+  `node_modules/next/dist/client/components/error-boundary.js` passes _both_. Read the
+  bodies: `reset` is `setState({ error: null })` and nothing else, while `retry` calls
+  `router.refresh()` and _then_ resets, inside a `startTransition`. Every error this app can
+  raise is a failed Supabase round trip, so re-rendering against the same payload would
+  simply fail again. `reset` would compile, render, and give you a dead button.
+- **Nothing typechecks a boundary's props, so that had to be verified by reading.** After
+  `npx next typegen`, `.next/types/validator.ts` covers `page.tsx`, `route.ts` and
+  `layout.tsx` only — `error`, `loading` and `not-found` are absent. A wrong prop name is a
+  runtime bug here, not a build failure.
+- **`error.tsx` does not wrap the `layout.tsx` in its own segment.** That single rule decided
+  the file layout: `(app)/error.tsx` cannot catch a throw in `(app)/layout.tsx`, which is the
+  first thing to call `createClient()` and therefore where `lib/env.ts` raises on a missing
+  variable — the realistic step-15 failure. So the root `app/error.tsx` exists specifically
+  to be the one that catches it. The two are written for their positions: the group's has no
+  "go home" button (the rail and tab bar are still on screen) and the root's does (the shell
+  is what failed), and the root one names no cause, because "environment variable" would tell
+  a stranger about our deploy.
+- **No `global-error.tsx`, deliberately.** It only adds value for a throw in
+  `app/layout.tsx`, which loads three fonts and sets metadata and touches no data at all —
+  and it costs the app's own styling, since it replaces the root layout including
+  `globals.css`. Also no `app/(auth)/error.tsx`: those pages don't query at render, and their
+  failures are Server Action results already rendered as an `Alert`.
+- **The two root-level pages duplicate `(auth)/layout.tsx`'s frame rather than sharing it.**
+  Centred column, aurora backdrop, wordmark, one `bg-raised/95` card. `app/error.tsx` in
+  particular has to keep working when the thing it would share code with is the thing that
+  broke, and it's six lines. Small and obvious over extensible, per the top of this file.
+- **`loading.tsx` sits at the group level and is honest about when it shows.** Layouts don't
+  re-render on a soft navigation between siblings, so every move between the four screens
+  gets the fallback; a hard load doesn't, because `loading.md` is explicit that a layout
+  reading runtime data (ours reads `cookies()`) blocks navigation instead of falling back.
+  That's the right trade — a hard load has no previous page to sit on. One generic shape
+  (title block + one divided list) serves all six routes, and its columns copy
+  `TransactionRow`'s so real rows don't jump sideways when they land.
+- **`animate-pulse` is a documented exception to "Nothing loops", argued on that rule's own
+  terms.** The rule is about an infinite `background-position` repainting a full-width panel
+  for the life of the tab; this animates `opacity`, which the compositor handles without a
+  repaint, and a skeleton is unmounted the moment the page arrives, so it cannot outlive the
+  wait. The loop is also the meaning: a static grey block reads as broken content. It needed
+  no reduced-motion handling — the global block already collapses it to one 0.01ms iteration,
+  landing on `opacity: 1`. It survives Tailwind's tree-shaking beside the six custom
+  `--animate-*` tokens because globals.css never resets `--animate-*`.
+- **The skeleton is one outer element with `animate-pulse` on an inner layer.** A direct
+  child of `main` can't carry an `animate-*` class — `.stagger-children > *` and `.animate-x`
+  both set the `animation` shorthand at equal specificity, so one silently loses. Same reason
+  `hero-panel.tsx` is built the way it is.
+- `(app)/not-found.tsx` is what fixes the bare 404 the edit page used to fall through to. It
+  takes no props — `not-found.tsx` is never told what was missing — so the copy has to cover
+  all three reasons that page raises it: a malformed id, a deleted row, and someone else's
+  row, which RLS makes indistinguishable from deleted on purpose. `app/not-found.tsx` is a
+  different path entirely (unmatched URLs, resolved before any segment renders, so no shell),
+  and it's also what a signed-out stranger guessing at URLs sees — hence no wording that
+  assumes an account. Not `global-not-found.js`: that's still behind
+  `experimental.globalNotFound`.
+
+- **An error page cannot be verified with `curl`, and that's by design.** Probed on
+  24 Aug 2026 with a throwaway `app/dev/probe-throw/page.tsx` — `/dev` was in `proxy.ts`'s
+  `PUBLIC_PREFIXES` at the time, so it needed no session — and then deleted. **That route is
+  no longer public**: the exemption came out with `app/dev/` later the same day, so repeating
+  this probe now means adding a prefix back or borrowing a session cookie. The response is
+  **500** and the document body is empty — `<div hidden><!--$--><!--/$--></div>` — because a
+  Server Component throw is streamed as an error marker and the boundary renders on the
+  **client**, after hydration. What the flight payload does prove, and this is what was
+  actually being checked: the root boundary resolves to `[project]/app/error.tsx`, the root
+  `layout-router` gets it as its `error` prop, the page slot resolves to
+  `E{"digest":"649512421","message":"boundary probe"}` — so `digest` is populated and the
+  reference line will show — and `G` falls back to Next's built-in `global-error.js`, which
+  is the expected consequence of not writing one. Seeing the rendered error card needs a
+  browser.
+- **`app/not-found.tsx` is verified end to end**, two ways. Its full markup is serialized
+  into that same payload as the root segment's `notFound` slot (Next ships the slot with
+  every response, whether or not it's used), matching what the file says character for
+  character. And the prerender is a real 404: `.next/server/app/_not-found.meta` reads
+  `"status": 404` and `_not-found.html` contains our copy with zero occurrences of Next's
+  "This page could not be found" — so no soft-404.
+- **`(app)/error.tsx`, `(app)/not-found.tsx` and `loading.tsx` have not been rendered yet.**
+  All three are behind the session gate, and `loading.tsx` only appears on a soft navigation,
+  so none of them can be reached by `curl`. They're the same components in a different
+  position; what's unverified is how they look, not whether they're wired.
+
+**Step 14's accessibility sweep is done** (24 Aug 2026), and `app/dev/` is deleted — which
+closes step 14. Like the mobile pass this was an audit first, and the audit's result is the
+same shape: SPEC.md §4's four requirements were **already met**, by the primitives rather
+than per screen. Worth recording so nobody re-audits it:
+
+- _Labelled inputs_ — every text and select control in the app goes through
+  `components/text-field.tsx` or `components/select-field.tsx`, which own the
+  `label`/`htmlFor`, `aria-invalid` and `aria-describedby` wiring together; the type control
+  is a `<fieldset>`/`<legend>` around real radios; icon-only controls carry `aria-label`
+  (the switcher's arrows); repeated controls carry an `sr-only` suffix naming their row
+  (`category-row.tsx`), and the rename field uses `useId()` so its label can't point at
+  another row's input.
+- _Visible focus rings_ — `focus-ring` / `-inset` / `-within`, all `:focus-visible`.
+- _Colour never the only signal_ — the `+`/`−` in `components/money.tsx`, and all three
+  selected states carry `aria-current` + a tint + a shape change.
+- _Chart values as text_ — every breakdown row prints its amount and its percentage, and
+  the bar itself is `aria-hidden` because it restates them.
+
+**Two real gaps, both fixed.**
+
+- **There was no skip link.** The rail puts seven tab stops (wordmark, four destinations,
+  the account link, Sign out) ahead of the content on every navigation — WCAG 2.4.1. Added
+  to `app/(app)/layout.tsx` as the first focusable element, targeting a new `id="main"`.
+  **It's parked off-screen with a transform, not `sr-only` + `focus:not-sr-only`**: that
+  pair would need `not-sr-only`'s `position: static` beaten by a `fixed` in the same
+  variant, and two utilities fighting over one property is decided by whichever Tailwind
+  emits last — the same trap `stagger-children` documents. Toggling `translate` moves one
+  property one way and can't be ambiguous, and it keeps the link in the a11y tree at all
+  times. Verified in the built CSS rather than assumed: `-translate-y-16` and
+  `.focus-visible\:translate-y-0:focus-visible` both compiled, and the focus rule wins on
+  specificity (class + pseudo-class beats class), so emission order is irrelevant.
+  `focus-visible`, not `focus`, so a programmatic focus can't flash it on screen.
+- **`<main>` needed `tabIndex={-1}` as well as an `id`.** Browsers set the sequential focus
+  starting point on a fragment target but only _focus_ it if it's focusable, and a screen
+  reader cursor that hasn't moved makes the link look like it did nothing. It also needed
+  `outline-none`: following a skip link is keyboard-initiated, so `:focus-visible` matches
+  and the default ring would draw a rectangle around the entire page.
+- **The type radio group's error was on screen but not attached to anything.** A bare `<p>`
+  with no `id`, so unlike every other field in the app the message was unreachable from the
+  control — a screen reader announced the radios as fine. Now `id="type-message"` plus
+  `aria-describedby` on each radio, which is exactly what the primitives generate from
+  `name`.
+
+**The interesting finding is what ESLint refused.** The obvious fix was to mirror
+`TextField` exactly and add `aria-invalid` to each radio, and `jsx-a11y/role-supports-aria-props`
+rejected it: **`aria-invalid` is not supported on `role="radio"`** — only on `radiogroup`,
+because a single radio's value can't be invalid, a group's _selection_ can. Carrying the
+state properly would mean `role="radiogroup"` on the wrapper plus a second accessible name
+to keep that role legal, duplicating what `<legend>` already says. Not worth it for a
+message the UI can't actually produce — `type` is a controlled pair with one always
+selected, so it only appears on a tampered submission. `aria-describedby` is global, valid
+on `radio`, and read on focus, which is the part that says what to fix. **Don't "restore"
+the `aria-invalid` for symmetry**; the comment in the file explains why it's absent.
+
+**Two things deliberately left alone.** `Card` renders a `<section>` with no accessible name
+when it has no title, so it isn't a navigable region — not a WCAG failure (an unnamed
+`<section>` is just a div), and naming them would mean threading ids through a shared
+primitive for a nice-to-have. And the dashboard is the only screen with no `export const
+metadata`, so its tab reads "Finance Tracker" — which is right for the home screen, not an
+omission.
+
+**`app/dev/` is gone**, both files, and with them the last `focus:ring-*`/`focus:outline-none`
+in the codebase — that pattern only ever existed in the sandbox. Two things worth knowing:
+the dependency ran one way (`app/dev/page.tsx` imported `app/(app)/category-breakdown.tsx`,
+never the reverse), so nothing in the app could break; and **`/dev` came out of `proxy.ts`'s
+`PUBLIC_PREFIXES` with it** — leaving the exemption behind would have left any future `/dev*`
+path anonymously reachable. `next typegen` was re-run and `/dev` is absent from the build's
+route table.
+
+Post-sweep the codebase has **no `role="button"`, no `onKeyDown`, and no `tabIndex` other
+than the skip target's `-1`** — there is not one hand-rolled interactive div, so nothing
+needs keyboard handling bolted on. The three remaining `outline-none` uses are all
+deliberate: the two field primitives strip the input's own ring because `focus-ring-within`
+puts it on the wrapper (so a prefix sits inside the same box), and `<main>`'s is the skip
+target above.
+
+**What the sweep did not verify:** the skip link has never been tabbed to in a browser. The
+layout is behind the session gate, so like the three `(app)` boundaries it can't be reached
+by `curl` — what's measured is that the CSS compiled and the markup is first in the DOM, not
+how it looks when it slides in.
 
 Regenerate DB types after every migration:
 

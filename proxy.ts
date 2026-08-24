@@ -18,7 +18,7 @@ import { SUPABASE_PUBLISHABLE_KEY, SUPABASE_URL } from "@/lib/env";
  */
 
 /** Reachable without a session. `/auth` covers the email confirmation handler. */
-const PUBLIC_PREFIXES = ["/login", "/signup", "/auth", "/dev"];
+const PUBLIC_PREFIXES = ["/login", "/signup", "/auth"];
 
 /** Pointless to visit once signed in; bounce to the dashboard. */
 const SIGNED_OUT_ONLY = ["/login", "/signup"];

@@ -66,6 +66,28 @@ export function TransactionForm({
   const [state, formAction, pending] = useActionState(action, undefined);
   const [type, setType] = useState<TransactionType>(initial?.type ?? "expense");
 
+  /*
+   * The same error wiring `TextField` and `SelectField` do, by hand, because this is
+   * the one control in the app that isn't one of them. Without the id and the
+   * `aria-describedby` the message is on screen but not attached to anything, so a
+   * screen reader announces the radios as fine and leaves the reason to be found by
+   * hunting. `type-message` is exactly what the primitives would have generated from
+   * `name`, so the convention holds.
+   *
+   * `aria-describedby` only — no `aria-invalid`, unlike the two primitives, and that
+   * asymmetry is deliberate. ARIA doesn't support `aria-invalid` on `radio` (only on
+   * `radiogroup`), because a single radio's value can't be invalid; a group's
+   * selection can. Carrying the state properly would mean giving the wrapper
+   * `role="radiogroup"` and then a second accessible name to keep that role legal,
+   * duplicating what `<legend>` already says. Not worth it for a field the UI can't
+   * actually leave empty — `type` is a controlled pair with one always selected, so
+   * this message only appears on a tampered submission. `aria-describedby` is global,
+   * valid on `radio`, and read on focus, which is the part that tells you what to fix.
+   */
+  const typeErrors = state?.fieldErrors?.type;
+  const typeInvalid = typeErrors !== undefined && typeErrors.length > 0;
+  const typeMessageId = "type-message";
+
   // Categories are per-direction: an expense category is invalid for income, and
   // the composite FK would reject it. Filter client-side — there are a handful.
   const available = categories.filter((category) => category.type === type);
@@ -96,6 +118,7 @@ export function TransactionForm({
                   value={candidate}
                   checked={selected}
                   onChange={() => setType(candidate)}
+                  aria-describedby={typeInvalid ? typeMessageId : undefined}
                   className="sr-only"
                 />
                 {candidate}
@@ -103,8 +126,10 @@ export function TransactionForm({
             );
           })}
         </div>
-        {state?.fieldErrors?.type && (
-          <p className="text-expense mt-1.5 text-sm">{state.fieldErrors.type.join(" ")}</p>
+        {typeInvalid && (
+          <p id={typeMessageId} className="text-expense mt-1.5 text-sm">
+            {typeErrors.join(" ")}
+          </p>
         )}
       </fieldset>
 
