@@ -23,16 +23,40 @@ import { createClient } from "@/lib/supabase/server";
  */
 export default async function AppLayout({ children }: LayoutProps<"/">) {
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+
+  /*
+   * Both reads go out together. The profile query needs no user id — RLS scopes
+   * `profiles` to `auth.uid()` — so it doesn't have to wait for `getUser()`, and
+   * the shell costs one round trip instead of two.
+   *
+   * Firing it before the redirect gate is safe: with no session RLS returns no
+   * row, so an unauthenticated request wastes one query on a path `proxy.ts` has
+   * already redirected. And the token it uses is current, because the proxy
+   * refreshes the session before any of this renders.
+   */
+  const [
+    {
+      data: { user },
+    },
+    { data: profile },
+  ] = await Promise.all([
+    supabase.auth.getUser(),
+    supabase.from("profiles").select("display_name").maybeSingle(),
+  ]);
 
   if (!user) redirect("/login");
 
-  const displayName =
-    typeof user.user_metadata.display_name === "string" && user.user_metadata.display_name.trim()
-      ? user.user_metadata.display_name
-      : null;
+  /*
+   * `profiles.display_name` is the source of truth, not `user.user_metadata` —
+   * signup writes that copy once as the seed trigger's argument and nothing keeps
+   * it current, so reading it here would show a stale name after an edit. See
+   * `app/actions/profile.ts` for why the column won.
+   *
+   * `maybeSingle` because a missing profile row should cost the name, not the app
+   * shell. The check constraint means the stored value is a non-blank name or
+   * NULL, so there's nothing to trim.
+   */
+  const displayName = profile?.display_name ?? null;
 
   return (
     <div className="relative isolate flex flex-1">

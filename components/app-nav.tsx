@@ -42,7 +42,11 @@ export function SidebarNav() {
             key={href}
             href={href}
             aria-current={active ? "page" : undefined}
-            className={`focus-ring ease-out-quart relative flex min-h-10 items-center gap-2.5 rounded-md px-2.5 text-sm transition-[background-color,color] duration-150 ${
+            // The rail only renders from `md` up, but "wide" isn't "mouse" — a tablet
+            // in landscape gets the rail and taps it, so the row grows to 44px on a
+            // coarse pointer. Below `md` this component isn't rendered at all and
+            // `TabBarNav`'s 56px rows are the touch target.
+            className={`focus-ring ease-out-quart relative flex min-h-10 items-center gap-2.5 rounded-md px-2.5 text-sm transition-[background-color,color] duration-150 pointer-coarse:min-h-11 ${
               active
                 ? "bg-brand-soft text-accent font-medium"
                 : "text-ink-2 hover:text-ink hover:bg-sunken"

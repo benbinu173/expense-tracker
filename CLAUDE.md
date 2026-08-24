@@ -280,10 +280,10 @@ custom properties, which is what lets an `--animate-*` value reference
 
 Work top to bottom. Each step should end with the app running.
 
-**Status:** steps 1–12 done. Scaffold + tooling; Supabase clients and `proxy.ts`; auth
-(signup, login, logout, redirects); `lib/money.ts` + `lib/period.ts`; add, list, edit and
-delete transactions; the period balance summary; the categories page; the dashboard —
-93 passing tests.
+**Status:** steps 1–13 done, plus step 14's mobile pass. Scaffold + tooling; Supabase
+clients and `proxy.ts`; auth (signup, login, logout, redirects); `lib/money.ts` +
+`lib/period.ts`; add, list, edit and delete transactions; the period balance summary; the
+categories page; the dashboard; the account page — 106 passing tests.
 Step 3 is complete — the migration is applied and verified (tables exist, RLS refuses
 anonymous writes), `lib/database.types.ts` is generated, and the `Database` generic is
 wired into both Supabase clients, so `.from(...)` queries are typed and allowed.
@@ -342,7 +342,7 @@ also worth not re-deriving:
   missing page. A well-formed id that isn't yours is `notFound()` too — RLS makes "not
   yours" and "doesn't exist" the same answer, which is the behaviour we want.
 
-`/account` still renders read-only fields and gets its real content in step 13.
+`/account` became writable in step 13 — see below.
 
 Step 10 aggregated the period totals in Postgres, and four of its findings came up again in
 step 12 — the category breakdown's `category_totals` function is built to all four:
@@ -497,6 +497,121 @@ so they're written down:
   three-equal-thirds case, and the empty state. It goes with the rest of that page at step
   14, along with its import of `app/(app)/category-breakdown.tsx`.
 
+Step 13 made `/account` writable — an editable display name and a change-password form.
+**It needed no migration**: `profiles_update_own` and
+`check (char_length(trim(display_name)) between 1 and 60)` were both already in
+`20260819000000_init.sql`. Its decisions:
+
+- **The display name had two stores, and now has one.** `public.profiles` was
+  _write-only_ — the signup trigger seeded `display_name` into it and nothing ever read it
+  back; both readers used `user.user_metadata.display_name`, the value `signUp` passes
+  through `options.data`. They agreed only because nothing had ever edited the name.
+  **`profiles.display_name` is now the single source of truth**, and `user_metadata` is
+  demoted to what it honestly is: a signup-time argument for the trigger, written once and
+  never read. The deciding argument is the check constraint — the column is validated by
+  Postgres at 1–60 characters and `user_metadata` is unconstrained JSON, so keeping the
+  name there would move a documented limit's enforcement into TypeScript only. That's
+  backwards for a codebase where the composite FK, the unique index and RLS all exist so
+  the database refuses bad data rather than trusting the app. `updateDisplayName`
+  deliberately does not write the metadata copy.
+- **The switch cost one query and no latency.** RLS scopes
+  `select display_name from profiles` to `auth.uid()`, so it needs no user id and runs
+  **concurrently with `getUser()`** in a `Promise.all` — one round trip, not two, in both
+  `app/(app)/layout.tsx` and the page. Firing it before the layout's redirect gate is safe:
+  with no session RLS returns no row, so an anonymous request wastes one query on a path
+  `proxy.ts` has already redirected. `maybeSingle()`, not `single()` — a missing profile row
+  should cost the name, not the app shell. The layout has to read the column rather than the
+  session's copy because the rail shows the name directly beside the form you just changed
+  it on.
+- **Clearing the field writes SQL `NULL`, never `''`.** An empty string trims to zero
+  characters and the check constraint rejects it, so `''` would turn "remove my display
+  name" into a `23514`. `displayNameSchema` collapses every blank shape to `undefined` and
+  the action maps that with `?? null`; `lib/validation/profile.test.ts` has a test whose
+  only job is that the schema never yields `''`.
+- **All four of those claims are measured, not assumed.** Probed against the live database
+  on 22 Aug 2026 with the owner's JWT `sub` and then a stranger's, inside one transaction
+  that restored the value: the owner's update matched **1 row**, the stranger's matched
+  **0** (so an empty `.select("id")` really is how "not yours" arrives), `''` raised
+  **23514**, and 61 characters raised **23514** as well. That last one is the whole
+  argument for the column over `user_metadata`, in the form of an error code.
+- **The current password is verified in the action, not by `current_password`.** That
+  attribute exists on auth-js's `UserAttributes`, but it's only honoured when the project
+  has `GOTRUE_SECURITY_UPDATE_PASSWORD_REQUIRE_CURRENT_PASSWORD` set — a dashboard setting,
+  not something a migration can turn on — so relying on it would mean the check silently
+  does nothing here. `changePassword` calls `signInWithPassword` first instead, which works
+  whatever the project is configured to do. Two side effects, both wanted: a wrong guess
+  spends the account's sign-in rate limit, and a correct one rotates the session cookie
+  just before the password write (same user, and `signIn` already proves a Server Action
+  can set those cookies).
+- **Reuse is caught by the schema, not by Supabase.** `same_password` only comes back when
+  the project has password-reuse prevention on, so `passwordChangeSchema` refines it
+  itself — no round trip, and the behaviour is ours. The `same_password` and
+  `weak_password` handlers stay as backstops in case a setting changes later.
+- **Two entities, two files.** The display name is a `profiles` row, so it gets
+  `app/actions/profile.ts`; the password is a credential, so it goes in
+  `app/actions/auth.ts`, whose header already calls itself the only place credentials are
+  handled. The password form has **its own state type** with no `values` field, so nothing
+  typed into it can round-trip through a Server Action's response.
+- **The password form keys on a counter, not a flag.** `PasswordFormState.changed` counts
+  successful changes and the `<form>` keys on it, so a success remounts and empties both
+  boxes — a new `defaultValue` wouldn't, and a password left sitting in a field after the
+  change landed is the worst version of that bug. A flag would already be set on a second
+  change in the same page load, so the key wouldn't move. Every failure path carries the
+  counter forward unchanged, so a rejected attempt leaves both boxes holding what was typed.
+- **The display-name confirmation names the value it wrote** ("Saved as Ada." / "Display
+  name removed."), so it stays true if you carry on typing afterwards. It reports what
+  happened rather than claiming what's in the box, which is what lets the form get away
+  with no client state and no dismiss button.
+- `signup-form.tsx`'s `maxLength={60}` became `DISPLAY_NAME_MAX_LENGTH`, so the cap is
+  written once and the two screens can't drift.
+
+**Step 14's mobile pass is done** (22 Aug 2026). It was an audit first, and the audit's
+result is the thing worth not re-deriving: **the layouts were already responsive** and
+needed no changes. The app is mobile-first Tailwind throughout, so unprefixed classes _are_
+the phone: grids stack below `sm`, the rail becomes a bottom tab bar below `md`, the hero
+figure is `text-figure sm:text-hero` rather than one size that has to fit both, and the
+only hard minimum width anywhere is the period label's `min-w-42` inside a `flex-wrap` row
+(168px + two 44px arrows + gaps = 264px, against 335px of usable width at 375px). Every
+flexible text cell pairs `min-w-0` with `truncate`, so the amount column always wins the
+squeeze; the delete dialog is `w-[min(25rem,calc(100vw-2rem))]`; and there is not one
+`overflow-x` or `whitespace-nowrap` in the codebase.
+
+What actually failed was **tap-target height** against SPEC.md §4's 44px, and only height —
+nothing was too narrow. `ViewToggle` already had the right number with a comment naming the
+spec; four other controls hadn't followed it.
+
+- **The fix is the `pointer-coarse:` variant, not a breakpoint.** `@media (pointer: coarse)`
+  asks the question the requirement is actually about — is this being _tapped_ — where
+  `sm:`/`md:` only ask how wide the window is. Verified it compiles under Tailwind 4.3.3 and
+  reached the built CSS as one `@media (pointer:coarse)` block, rather than assuming the
+  variant exists.
+- **`SIZES.sm` in `components/button.tsx` is the one that mattered**, because it's the
+  shared primitive behind the page-header CTAs, the empty states, the categories row's
+  Edit/Save/Cancel/Delete, the add-category form, the dashboard's CTAs and the delete
+  dialog's buttons. It's now 36px for a mouse and 44px on touch. **Raising it to 44px flat
+  was the wrong call**: `sm` exists only to be denser than `md`, and `md` is already
+  `min-h-11`, so a flat lift would have made the two sizes identical and the prop
+  meaningless. Height only — the padding doesn't move, so a row of small buttons grows
+  taller on touch without reflowing sideways.
+- Same treatment for `period-switcher.tsx` (segments 32→44, the shared `STEP` arrows 36→44),
+  `transaction-form.tsx`'s type toggle (40→44), and `app-nav.tsx`'s `SidebarNav` rows
+  (40→44). The rail is `md:`-and-up, but **wide isn't the same as mouse** — a tablet in
+  landscape gets the rail and taps it.
+- **The period segment needed `flex items-center` added, not just a taller box.** It was a
+  flex item relying on `py-1` for its height, so at 44px the label would have sat high in
+  the box with the active underline — which is `absolute … bottom-0.5` — stranded below it.
+  Growing a padding-centred control is where this class of change goes wrong.
+- **Known limit, accepted:** the variant reads the _primary_ pointer, so a touchscreen
+  laptop driven by its trackpad gets the 36px version. It has a precise pointer available;
+  `any-pointer: coarse` would have inflated every control on every laptop that happens to
+  have a touchscreen, which is the worse trade.
+- `TransactionRow` was already exactly 44px on a note-less row (`text-sm` at 20px line
+  height + `py-3`), which is worth knowing before anyone trims that padding.
+
+Step 14 still owes: route-level `loading.tsx` / `error.tsx` / `not-found.tsx` (there are
+**none** anywhere in `app/`, so `notFound()` in the edit page currently renders a bare 404
+with no app shell), the rest of the accessibility sweep, and deleting `app/dev/`.
+
 Regenerate DB types after every migration:
 
 ```
@@ -526,11 +641,20 @@ had ever run:
   insert, and one of the four has `updated_at` past `created_at`, so the edit action has
   committed a real change.
 - **RLS is on with policies attached** — `transactions` 4, `categories` 4, `profiles` 3.
-- **Not yet exercised by a session:** delete (of either kind — a deleted row leaves no
+- **Step 12's dashboard has been looked at in a browser** and reported correct, on
+  22 Aug 2026. That was a read-only pass: re-probed the same day, the database is byte for
+  byte what it was before — 14 categories all stamped at the signup second, 4 transactions,
+  1 of them edited. So the dashboard's three queries, the largest-remainder percentages and
+  the bar geometry have all rendered against real rows, and nothing else was exercised.
+- **Still not exercised by a session:** delete (of either kind — a deleted row leaves no
   trace to probe), every write on `/categories` (all fourteen categories are pristine
-  seeds, so add, rename and delete have never run), and the whole of step 12's dashboard,
-  which shipped after that last sign-in. The account's four transactions all fall in
-  August 2026, so the current month renders with real rows rather than the empty state.
+  seeds, so add, rename and delete have never run), and all of step 13's account writes.
+  The account's four transactions all fall in August 2026, so the current month renders
+  with real rows rather than the empty state.
+- **The step-13 store switch is invisible until the first edit.** Probed 22 Aug 2026:
+  `profiles.display_name` and the `user_metadata` copy hold the same 15-character name, so
+  moving the rail and the account page onto the column changes nothing on screen. The first
+  save is where they diverge, and only the column is read from then on.
 
 1. **Scaffold** — `create-next-app` (TS, Tailwind, App Router), ESLint + Prettier,
    strict `tsconfig`, base layout shell.

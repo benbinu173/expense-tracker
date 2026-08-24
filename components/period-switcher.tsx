@@ -33,8 +33,13 @@ const MODE_LABELS: Record<PeriodMode, string> = {
   year: "Year",
 };
 
-/** Shared by the two arrows and the disabled stand-in, so all three are one size. */
-const STEP = "grid size-9 place-items-center rounded-md";
+/**
+ * Shared by the two arrows and the disabled stand-in, so all three are one size.
+ * 36px for a mouse, 44px for a finger — see the note on `SIZES` in
+ * `components/button.tsx`. At 375px the arrows and the label still fit one row
+ * (44 + 168 + 44 plus gaps), so growing them costs no layout.
+ */
+const STEP = "grid size-9 pointer-coarse:size-11 place-items-center rounded-md";
 
 export function PeriodSwitcher({ mode, anchor, today, basePath }: PeriodSwitcherProps) {
   const href = (nextMode: PeriodMode, nextAnchor: string) =>
@@ -58,7 +63,11 @@ export function PeriodSwitcher({ mode, anchor, today, basePath }: PeriodSwitcher
               key={candidate}
               href={href(candidate, anchor)}
               aria-current={active ? "true" : undefined}
-              className={`focus-ring ease-out-quart relative min-h-8 rounded-sm px-3 py-1 text-[13px] transition-colors duration-150 ${
+              // `flex items-center` rather than relying on `py-1`: the box is taller
+              // than its text on touch, and a padding-centred label would sit high in
+              // it — with the active underline, which is anchored to the bottom edge,
+              // stranded below. Centring makes the extra height split evenly.
+              className={`focus-ring ease-out-quart relative flex min-h-8 items-center justify-center rounded-sm px-3 py-1 text-[13px] transition-colors duration-150 pointer-coarse:min-h-11 ${
                 active
                   ? "bg-raised text-accent shadow-card font-medium"
                   : "text-ink-2 hover:text-ink"

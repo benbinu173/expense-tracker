@@ -83,7 +83,7 @@ export function TransactionForm({
             return (
               <label
                 key={candidate}
-                className={`focus-ring-within ease-out-quart flex min-h-10 cursor-pointer items-center justify-center rounded-sm border text-sm font-medium capitalize transition-[background-color,border-color,color,box-shadow] duration-150 ${
+                className={`focus-ring-within ease-out-quart flex min-h-10 cursor-pointer items-center justify-center rounded-sm border text-sm font-medium capitalize transition-[background-color,border-color,color,box-shadow] duration-150 pointer-coarse:min-h-11 ${
                   selected
                     ? `${TYPE_STYLES[candidate]} shadow-card`
                     : "text-ink-2 hover:text-ink hover:bg-raised/60 border-transparent"

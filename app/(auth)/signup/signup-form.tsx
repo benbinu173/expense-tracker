@@ -8,6 +8,7 @@ import { Alert } from "@/components/alert";
 import { SubmitButton } from "@/components/button";
 import { TextField } from "@/components/text-field";
 import { PASSWORD_MIN_LENGTH } from "@/lib/validation/auth";
+import { DISPLAY_NAME_MAX_LENGTH } from "@/lib/validation/profile";
 
 export function SignupForm() {
   const [state, action, pending] = useActionState(signUp, undefined);
@@ -61,7 +62,7 @@ export function SignupForm() {
         label="Display name"
         name="displayName"
         autoComplete="name"
-        maxLength={60}
+        maxLength={DISPLAY_NAME_MAX_LENGTH}
         placeholder="What should we call you?"
         defaultValue={state?.values?.displayName}
         errors={state?.fieldErrors?.displayName}

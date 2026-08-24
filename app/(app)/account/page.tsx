@@ -7,34 +7,56 @@ import { PageHeader } from "@/components/page-header";
 import { APP_TIME_ZONE } from "@/lib/period";
 import { createClient } from "@/lib/supabase/server";
 
+import { DisplayNameForm } from "./display-name-form";
+import { PasswordForm } from "./password-form";
+
 export const metadata: Metadata = { title: "Account" };
 
 /**
- * Account overview. Editing the display name and changing the password are
- * step 13 — this shows what the session already knows, and gives mobile a place
- * to sign out from (the desktop rail has its own button).
+ * Account settings: the display name, the password, and the way out.
+ *
+ * Three cards, in order of how often they're touched — the editable name first,
+ * the credential second, and signing out last, where it can't be hit by accident.
+ * Mobile needs that last one: the desktop rail has its own sign-out button and the
+ * tab bar doesn't.
+ *
+ * Email and the join date stay read-only. Changing an email address means a
+ * confirmation round trip on both the old and the new address, which is its own
+ * feature and isn't in SPEC.md.
  */
 export default async function AccountPage() {
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+
+  // Same pairing as the layout, for the same reason: RLS scopes `profiles` to the
+  // session, so the query doesn't need the user id and needn't wait for it.
+  const [
+    {
+      data: { user },
+    },
+    { data: profile },
+  ] = await Promise.all([
+    supabase.auth.getUser(),
+    supabase.from("profiles").select("display_name").maybeSingle(),
+  ]);
 
   // The layout redirects when there's no user, so this only satisfies the type.
   if (!user) return null;
-
-  const displayName =
-    typeof user.user_metadata.display_name === "string" && user.user_metadata.display_name.trim()
-      ? user.user_metadata.display_name
-      : null;
 
   return (
     <>
       <PageHeader title="Account" description="Your sign-in details and app preferences." />
 
-      <Card padded={false}>
-        <dl className="divide-rule divide-y text-sm">
-          <Row label="Display name">{displayName ?? <Unset>Not set</Unset>}</Row>
+      {/*
+       * `padded={false}` so the fact rows can run to the card edge — a divided list
+       * with the hairlines stopping short of the border looks broken. The form
+       * supplies its own padding to match.
+       */}
+      <Card title="Profile" padded={false}>
+        <div className="p-4 sm:p-5">
+          <DisplayNameForm current={profile?.display_name ?? null} />
+        </div>
+
+        <dl className="divide-rule border-rule divide-y border-t text-sm">
           <Row label="Email">
             <span className="break-all">{user.email}</span>
           </Row>
@@ -43,6 +65,10 @@ export default async function AccountPage() {
             <span className="text-ink-2">{APP_TIME_ZONE}</span>
           </Row>
         </dl>
+      </Card>
+
+      <Card title="Password">
+        <PasswordForm />
       </Card>
 
       <Card title="Session">
@@ -78,8 +104,4 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
       <dd className="font-medium">{children}</dd>
     </div>
   );
-}
-
-function Unset({ children }: { children: React.ReactNode }) {
-  return <span className="text-ink-3 font-normal italic">{children}</span>;
 }

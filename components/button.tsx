@@ -33,8 +33,20 @@ const VARIANTS: Record<Variant, string> = {
   inverse: "bg-brand-fg text-brand-ink hover:bg-brand-fg/90 shadow-pop",
 };
 
+/*
+ * `md` is 44px flat — the tap target SPEC.md §4 asks for. `sm` is 36px for a mouse
+ * and 44px for a finger, via `pointer-coarse` (`@media (pointer: coarse)`), because
+ * a size that only exists to be dense would be pointless if it matched `md`
+ * everywhere. Height only: the padding stays put, so a row of small buttons grows
+ * taller on touch without reflowing sideways.
+ *
+ * The variant reads the *primary* pointer, so a touchscreen laptop driven by its
+ * trackpad gets the 36px version. That's the accepted edge: it has a precise
+ * pointer available, and inflating every control on every laptop that happens to
+ * have a touchscreen is the worse trade.
+ */
 const SIZES: Record<Size, string> = {
-  sm: "min-h-9 gap-1.5 px-3 text-[13px]",
+  sm: "min-h-9 pointer-coarse:min-h-11 gap-1.5 px-3 text-[13px]",
   md: "min-h-11 gap-2 px-4 text-sm",
 };
 
