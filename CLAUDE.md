@@ -280,9 +280,10 @@ custom properties, which is what lets an `--animate-*` value reference
 
 Work top to bottom. Each step should end with the app running.
 
-**Status:** steps 1–15 done, with **one manual step outstanding** — the Supabase auth URL
-configuration, which only the dashboard can set (see step 15 below). The app is live at
-**https://expense-tracker-six-omega-23.vercel.app**. Scaffold +
+**Status:** all 15 steps done. The app is live at
+**https://expense-tracker-six-omega-23.vercel.app**, and the Supabase auth URL
+configuration — the one thing only the dashboard could set — is applied and verified (see
+step 15 below). Scaffold +
 tooling; Supabase clients and `proxy.ts`; auth (signup, login, logout, redirects);
 `lib/money.ts` + `lib/period.ts`; add, list, edit and delete transactions; the period balance
 summary; the categories page; the dashboard; the account page — 111 passing tests.
@@ -785,8 +786,8 @@ how it looks when it slides in.
 **Step 15 is deployed** (24 Aug 2026). Live at
 **https://expense-tracker-six-omega-23.vercel.app**, project
 `benbinu173s-projects/expense-tracker`, GitHub `benbinu173/expense-tracker` connected so a
-push to `master` deploys. **One thing is still outstanding and it is not optional** — see
-"The auth URLs are wrong" below.
+push to `master` deploys. The auth URL configuration it depended on is **applied and
+verified** — see "The auth URLs were wrong" below.
 
 - **Only two env vars are needed, and no third for the deployed origin.**
   `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`, set on Production,
@@ -818,35 +819,54 @@ push to `master` deploys. **One thing is still outstanding and it is not optiona
 - **`vercel link` also connected the GitHub repository by itself,** so `vercel git connect`
   was never needed and push-to-deploy was wired before the first deploy.
 
-**The auth URLs are wrong, and this is measured, not suspected.** Supabase's Site URL is
-still `http://localhost:3000` and the production domain is not in the redirect allow-list —
-so a real signup on the live site emails a confirmation link pointing at localhost, which
-works only on the developer's own machine. **Signup on production is not functional until
-this is fixed.**
+**The auth URLs were wrong, and both the diagnosis and the fix are measured.** Supabase's
+Site URL was still `http://localhost:3000` and the production domain wasn't in the redirect
+allow-list, so a real signup on the live site emailed a confirmation link pointing at
+localhost. **Fixed in the dashboard on 24 Aug 2026** — Site URL is now
+`https://expense-tracker-six-omega-23.vercel.app`, with `http://localhost:3000/**` and
+`https://expense-tracker-*-benbinu173s-projects.vercel.app/**` added as redirect URLs.
 
 - **The allow-list can be probed without sending an email**, and this is the technique worth
   keeping: `GET /auth/v1/verify?token=probe-invalid-token&type=signup&redirect_to=<url>`.
   The token is always rejected, but **the redirect target reveals whether `redirect_to`
   passed the allow-list** — an allowed URL comes back with its path intact
-  (`http://localhost:3000/auth/confirm#error=…`), a rejected one falls back to the bare Site
-  URL (`http://localhost:3000/#error=…`). So the probe reads the current Site URL _and_
-  tests any candidate, using only the publishable key. Run on 24 Aug 2026: localhost kept
-  its path, and both the production alias and the deployment-specific host came back
-  identical to a deliberately-hostile `https://evil.example.com` — i.e. rejected.
-- **Changing only the Site URL would break local development.** Supabase always allows the
-  Site URL itself, and that is the _only_ reason localhost passes today. Moving the Site URL
-  to production without adding `http://localhost:3000/**` to the additional redirect URLs in
-  the same edit takes local signup with it.
+  (`…/auth/confirm#error=…`), a rejected one falls back to the bare Site URL. So one request
+  reads the current Site URL _and_ tests any candidate, using only the publishable key. It's
+  how this was diagnosed (localhost kept its path; production and the deployment host came
+  back identical to a deliberately-hostile `https://evil.example.com`) and how the fix was
+  confirmed: production, localhost and an _invented_ preview hash all kept their paths, while
+  `evil.example.com` still fell back — to the new Site URL, which is how the Site URL change
+  was read back without trusting the dashboard. **Keep a hostile URL in the probe set**; four
+  passes could equally mean somebody pasted a blanket wildcard.
+- **A rejected `redirect_to` is silent, and the symptom names the wrong culprit.** GoTrue
+  doesn't error — it discards the URL and substitutes the bare Site URL, _path included_. So
+  the link never reached `/auth/confirm` at all: it landed on `http://localhost:3000`, which
+  is the protected dashboard, and `proxy.ts` bounced it to `/login`. A user reporting "the
+  confirmation link sends me to localhost/login" is describing an allow-list rejection two
+  redirects upstream, not a broken confirm route. (Before the dev server was running, the
+  same chain read as "localhost is unreachable".)
+- **Changing only the Site URL would have broken local development.** Supabase implicitly
+  allows whatever the Site URL is, and that was the _only_ reason localhost passed. Moving it
+  to production without adding `http://localhost:3000/**` in the same edit would have taken
+  local signup with it. The same implicit allowance is now what lets production pass with no
+  explicit entry of its own — so if the Site URL ever moves again, add
+  `https://expense-tracker-six-omega-23.vercel.app/**` explicitly at the same time.
 - **This is a dashboard change, and that does not violate the no-dashboard rule.** That rule
   is scoped to SQL and schema — auth URL configuration is neither, and there is no migration
-  that could express it. `supabase config push` was considered and **rejected**: the CLI has
-  `push` but no pull and no dry-run, so it would send a whole resolved `[auth]` block built
-  from CLI defaults and could silently flip `mailer_autoconfirm` on a project where email
-  confirmation being on is a known, documented fact.
+  that could express it. Nor could the CLI do it: `supabase config` has exactly one
+  subcommand, `push`, with **no pull and no dry-run**, so it would send a whole resolved
+  `[auth]` block built from CLI defaults — and the default `config.toml` carries
+  `enable_confirmations = false`, which would switch email confirmation off on a project
+  where its being on is a known, documented fact. The Management API could do it surgically,
+  but the CLI's token lives in the Windows credential manager rather than a file, so there is
+  nothing to authenticate with from here.
 - **The preview wildcard is needed because the origin is request-derived.** A preview
   deployment's host is `expense-tracker-<hash>-benbinu173s-projects.vercel.app`, and
   `siteOrigin()` will faithfully use it; without a wildcard entry every preview's
   confirmation link silently falls back to the Site URL.
+- **Nothing had to be redeployed.** No code reads the Site URL — `siteOrigin()` derives the
+  origin from the request — so the next email was correct the moment the dashboard saved, and
+  already-confirmed accounts were untouched.
 
 **What the deploy verified, by `curl` against the live domain** (24 Aug 2026): the build
 completed, which is itself the proof both env vars resolved; unauthenticated `/`,
@@ -867,7 +887,10 @@ completed, which is itself the proof both env vars resolved; unauthenticated `/`
 production domain — the three `(app)` boundaries have never rendered, the skip link has
 never been tabbed to, neither account form has left a database trace, and both delete paths
 and every `/categories` write remain unexercised. A production sign-in is also untested,
-though the login form itself renders.
+though the login form itself renders. **`app/auth/confirm/route.ts` has still never run**:
+every confirmation link so far was rejected by the allow-list and redirected past it, so
+`exchangeCodeForSession` has not been called once. The first signup after the URL fix is
+what exercises it.
 
 **A real signup on production found the auth-URL bug from the user's side** (24 Aug 2026),
 and diagnosing it turned up a second, worse one. Worth not re-deriving, because the symptom
