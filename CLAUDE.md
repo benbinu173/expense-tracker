@@ -285,7 +285,7 @@ configuration, which only the dashboard can set (see step 15 below). The app is 
 **https://expense-tracker-six-omega-23.vercel.app**. Scaffold +
 tooling; Supabase clients and `proxy.ts`; auth (signup, login, logout, redirects);
 `lib/money.ts` + `lib/period.ts`; add, list, edit and delete transactions; the period balance
-summary; the categories page; the dashboard; the account page — 106 passing tests.
+summary; the categories page; the dashboard; the account page — 111 passing tests.
 Step 3 is complete — the migration is applied and verified (tables exist, RLS refuses
 anonymous writes), `lib/database.types.ts` is generated, and the `Database` generic is
 wired into both Supabase clients, so `.from(...)` queries are typed and allowed.
@@ -868,6 +868,64 @@ production domain — the three `(app)` boundaries have never rendered, the skip
 never been tabbed to, neither account form has left a database trace, and both delete paths
 and every `/categories` write remain unexercised. A production sign-in is also untested,
 though the login form itself renders.
+
+**A real signup on production found the auth-URL bug from the user's side** (24 Aug 2026),
+and diagnosing it turned up a second, worse one. Worth not re-deriving, because the symptom
+pointed at the wrong cause:
+
+- **A dead confirmation link does not mean an unconfirmed account.** The emailed link hits
+  Supabase's `/auth/v1/verify`, which validates the token and sets `email_confirmed_at`
+  _before_ issuing the redirect. So the localhost landing page failed while the confirmation
+  itself succeeded — probed in `auth.users`, the account came back `confirmed: true` with a
+  `last_sign_in_at` from the verify step. Don't diagnose "confirmation broken" from the
+  browser error.
+- **The real fault was a mistyped password, and the login screen cannot say so.**
+  `signIn` maps every error code except `email_not_confirmed` to "Email or password is
+  incorrect." — deliberate anti-enumeration, but it also swallows
+  `over_request_rate_limit`, which is a different problem with a different fix. The way to
+  tell them apart is to ask the API directly with a deliberately wrong password and read
+  `error_code`: `invalid_credentials` means the account is fine and the password is wrong,
+  `over_request_rate_limit` means wait. **Don't "improve" the message by naming the code** —
+  distinguishing "no such email" from "wrong password" is exactly what it's built to
+  prevent. The rate-limit case is the one arguably worth splitting out.
+- **A signup typo was silent, terminal, and unrecoverable**, which is why the second
+  password box now exists. `signUp` created the account, the confirmation email worked, and
+  the first sign-in failed on a password nobody knew — and `app/(auth)/` has only `login`
+  and `signup`, with `resetPasswordForEmail` appearing nowhere, so there was no way back.
+  The account had to be deleted from `auth.users` to free the address. All three FKs to
+  `auth.users` are `on delete cascade`, so one delete took the profile and the 14 seeded
+  categories with it and left no orphans (verified by counting after: users 3→2, categories
+  42→28, profiles matching users, the other account's transactions untouched).
+- **`/auth/confirm` already routes `type=recovery` to `/account`** — the plumbing for a
+  reset flow is in place and nothing can request one. Note that a recovery session still
+  wouldn't be enough on its own: `/account`'s change-password form requires the _current_
+  password by design (step 13), so a real forgot-password flow needs a set-new-password form
+  that doesn't. That's why the reset flow wasn't bolted on here.
+
+**The confirm-password field's decisions**, since two of them look like arbitrary asymmetries:
+
+- **The mismatch is reported against `confirmPassword`, not `password`.** The first box holds
+  what the user meant; the second is the one to correct.
+- **The refine stands down while the second box is empty, but _not_ while the first box is
+  too short.** Zod 4 runs an object's refinements even when a field inside it already failed
+  (the trap `passwordChangeSchema` documents), so a blank confirmation would otherwise
+  collect both messages and `TextField` would join them into "Re-enter your password to
+  confirm it. Both passwords must match." A short _password_ is different: those two
+  messages land on different fields, so each box still shows exactly one instruction. The
+  guard asks `passwordConfirmation.safeParse` rather than re-testing for blankness, so the
+  condition lives in one place.
+- **Neither password box gets a `defaultValue`.** `AuthFormState.values` carries `email` and
+  `displayName` only, so nothing typed into either box can round-trip through a Server
+  Action's response — same rule `PasswordFormState` follows by having no `values` at all. A
+  rejected submit costs a retype, which is the right trade.
+- **`AuthFormState.fieldErrors` gained the key, and `tsc` is what caught it.** That union is
+  hand-written and spans both forms, so a new field is invisible to the form until it's
+  listed — the build fails on `state?.fieldErrors?.confirmPassword` otherwise.
+- **`validSignup` in the test file needed the field too, and that's a feature**: every
+  existing signup test fails without it, which is the proof the field is genuinely required.
+  The password-length test now moves both boxes together via a helper — overriding
+  `password` alone makes the mismatch check answer instead of the length rule, and the test
+  silently stops measuring what it's named for.
 
 Regenerate DB types after every migration:
 

@@ -58,6 +58,29 @@ export function SignupForm() {
         errors={state?.fieldErrors?.password}
       />
 
+      {/*
+       * The typo guard. Without it a mistyped password produces an account that
+       * confirms by email and then refuses every sign-in, and with no reset flow
+       * the only way out is deleting the row — so the second box is cheaper than
+       * the failure it prevents.
+       *
+       * No `defaultValue`, here or above: `AuthFormState.values` carries the email
+       * and the display name only, so nothing typed into either password box can
+       * round-trip through a Server Action's response. Both clear on a rejected
+       * submit, which costs a retype and is the right trade.
+       *
+       * `new-password` on both, per the HTML spec — it's what tells a password
+       * manager these are two halves of one new credential rather than a login.
+       */}
+      <TextField
+        label="Confirm password"
+        name="confirmPassword"
+        type="password"
+        required
+        autoComplete="new-password"
+        errors={state?.fieldErrors?.confirmPassword}
+      />
+
       <TextField
         label="Display name"
         name="displayName"

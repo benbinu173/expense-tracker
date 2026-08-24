@@ -17,8 +17,12 @@ import { loginSchema, passwordChangeSchema, signupSchema } from "@/lib/validatio
  */
 
 export type AuthFormState = {
-  /** Keyed to match the form input names. */
-  fieldErrors?: Partial<Record<"email" | "password" | "displayName", string[]>>;
+  /**
+   * Keyed to match the form input names. The union spans both forms this state
+   * serves, so `confirmPassword` and `displayName` are signup-only and `email` and
+   * `password` are shared — `Partial` is what lets each action fill its own subset.
+   */
+  fieldErrors?: Partial<Record<"email" | "password" | "confirmPassword" | "displayName", string[]>>;
   /** Whole-form failure, e.g. wrong credentials. */
   error?: string;
   /** Replaces the form on success without a redirect, e.g. "check your email". */
@@ -105,6 +109,7 @@ export async function signUp(
   const parsed = signupSchema.safeParse({
     email,
     password: field(formData, "password"),
+    confirmPassword: field(formData, "confirmPassword"),
     displayName,
   });
 

@@ -48,11 +48,55 @@ export const loginSchema = z.object({
   password: z.string().min(1, { error: "Enter your password." }),
 });
 
-export const signupSchema = z.object({
-  email,
-  password: newPassword,
-  displayName: displayNameSchema,
-});
+/**
+ * The second password box on the signup form. Its only job is to catch a typo in
+ * the first one, and that is worth a whole field because the failure is silent
+ * and terminal: `signUp` happily creates the account against whatever was typed,
+ * the confirmation email arrives and works, and the first sign-in then fails with
+ * `invalid_credentials` on a password nobody knows. There is no reset flow in the
+ * app, so the account is unrecoverable — the only fix is deleting the row.
+ *
+ * Message named once and passed twice, the same trap `categories.ts` documents: a
+ * schema-level `error` answers only what the type itself raises, so `.min(1)` with
+ * no `error` of its own would fall through to the locale default and surface
+ * "Too small: expected string to have >=1 characters" under an empty box.
+ */
+const BLANK_PASSWORD_CONFIRMATION = "Re-enter your password to confirm it.";
+
+const passwordConfirmation = z
+  .string({ error: BLANK_PASSWORD_CONFIRMATION })
+  .min(1, { error: BLANK_PASSWORD_CONFIRMATION });
+
+export const signupSchema = z
+  .object({
+    email,
+    password: newPassword,
+    confirmPassword: passwordConfirmation,
+    displayName: displayNameSchema,
+  })
+  /*
+   * The mismatch check. It stands down while the second box is empty, for the
+   * reason `passwordChangeSchema` documents below — Zod 4 runs an object's
+   * refinements even when a field inside it already failed, so a blank
+   * confirmation would otherwise collect both messages and `TextField` would join
+   * them into "Re-enter your password to confirm it. Both passwords must match."
+   * Asking `passwordConfirmation` itself keeps that condition in one place rather
+   * than restating "is it blank" here.
+   *
+   * It deliberately does *not* stand down when `password` fails its own length
+   * rule: those two messages land on different fields, so each box still shows
+   * exactly one instruction. Reported against `confirmPassword`, because the first
+   * box holds the password the user meant and the second is the one to correct.
+   */
+  .refine(
+    (data) =>
+      !passwordConfirmation.safeParse(data.confirmPassword).success ||
+      data.password === data.confirmPassword,
+    {
+      error: "Both passwords must match.",
+      path: ["confirmPassword"],
+    },
+  );
 
 /**
  * Changing the password from `/account`.
