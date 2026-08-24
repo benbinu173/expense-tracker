@@ -280,7 +280,9 @@ custom properties, which is what lets an `--animate-*` value reference
 
 Work top to bottom. Each step should end with the app running.
 
-**Status:** steps 1–14 done; step 15 (deploy) is all that's left. Scaffold +
+**Status:** steps 1–15 done, with **one manual step outstanding** — the Supabase auth URL
+configuration, which only the dashboard can set (see step 15 below). The app is live at
+**https://expense-tracker-six-omega-23.vercel.app**. Scaffold +
 tooling; Supabase clients and `proxy.ts`; auth (signup, login, logout, redirects);
 `lib/money.ts` + `lib/period.ts`; add, list, edit and delete transactions; the period balance
 summary; the categories page; the dashboard; the account page — 106 passing tests.
@@ -666,8 +668,12 @@ changed the code, so the findings are worth not re-deriving:
   all three reasons that page raises it: a malformed id, a deleted row, and someone else's
   row, which RLS makes indistinguishable from deleted on purpose. `app/not-found.tsx` is a
   different path entirely (unmatched URLs, resolved before any segment renders, so no shell),
-  and it's also what a signed-out stranger guessing at URLs sees — hence no wording that
-  assumes an account. Not `global-not-found.js`: that's still behind
+  and its copy assumes no account — though **not for the reason first written here.** The
+  claim was that it's what a signed-out stranger guessing at URLs sees; measured against the
+  live domain at step 15, it isn't, because `proxy.ts` redirects such a request to `/login`
+  before Next resolves a route. What actually reaches it is a signed-in user on an unmatched
+  URL, or anyone on an unmatched path under a public prefix — and that second case is public,
+  so account-free wording is still right. Not `global-not-found.js`: that's still behind
   `experimental.globalNotFound`.
 
 - **An error page cannot be verified with `curl`, and that's by design.** Probed on
@@ -775,6 +781,93 @@ target above.
 layout is behind the session gate, so like the three `(app)` boundaries it can't be reached
 by `curl` — what's measured is that the CSS compiled and the markup is first in the DOM, not
 how it looks when it slides in.
+
+**Step 15 is deployed** (24 Aug 2026). Live at
+**https://expense-tracker-six-omega-23.vercel.app**, project
+`benbinu173s-projects/expense-tracker`, GitHub `benbinu173/expense-tracker` connected so a
+push to `master` deploys. **One thing is still outstanding and it is not optional** — see
+"The auth URLs are wrong" below.
+
+- **Only two env vars are needed, and no third for the deployed origin.**
+  `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`, set on Production,
+  Preview and Development. There is deliberately no `NEXT_PUBLIC_SITE_URL`: `siteOrigin()`
+  in `app/actions/auth.ts` derives the origin from `x-forwarded-host`/`x-forwarded-proto`,
+  so `emailRedirectTo` self-adjusts between localhost, a preview host and production. A
+  fourth variable would be a second source of truth for something the request already
+  states.
+- **The env vars had to exist before the first build, not after it.** `lib/env.ts` throws at
+  **import** time, so a missing variable fails the Vercel build outright rather than
+  shipping a runtime that 500s. That's the behaviour we want, and it makes ordering a
+  requirement: set the variables, then deploy.
+- **`NEXT_PUBLIC_*` cannot be a Vercel "sensitive" variable, and that's correct.** The CLI
+  now defaults new variables to secret visibility, and the API refuses it for a public
+  framework prefix on Production or Preview: the value is inlined into the client bundle at
+  build time, so calling it a secret would be a lie. They're added with
+  `--visibility config --no-sensitive`. A publishable key is designed to ship to the
+  browser; RLS is what protects the data.
+- **Values are piped via stdin, never `--value`,** so no key lands in a command line or a
+  shell history. Piping from `.env.local` on Windows needs `tr -d '\r\n'` or the stored
+  value carries a trailing carriage return — invisible in the dashboard and fatal at
+  runtime. Verified rather than assumed: `vercel env pull` into a throwaway file and
+  compared md5 of both values against `.env.local` — both matched, then the file was deleted.
+- **`vercel link` rewrites two files.** It appended `VERCEL_OIDC_TOKEN` to `.env.local`
+  (both Supabase vars survived, so local dev is unaffected) and appended `.vercel` and
+  `.env*` to `.gitignore` — **both of which were already there**, with comments. That
+  duplication was reverted; if the CLI is ever re-run, revert it again rather than keeping
+  two copies of a rule.
+- **`vercel link` also connected the GitHub repository by itself,** so `vercel git connect`
+  was never needed and push-to-deploy was wired before the first deploy.
+
+**The auth URLs are wrong, and this is measured, not suspected.** Supabase's Site URL is
+still `http://localhost:3000` and the production domain is not in the redirect allow-list —
+so a real signup on the live site emails a confirmation link pointing at localhost, which
+works only on the developer's own machine. **Signup on production is not functional until
+this is fixed.**
+
+- **The allow-list can be probed without sending an email**, and this is the technique worth
+  keeping: `GET /auth/v1/verify?token=probe-invalid-token&type=signup&redirect_to=<url>`.
+  The token is always rejected, but **the redirect target reveals whether `redirect_to`
+  passed the allow-list** — an allowed URL comes back with its path intact
+  (`http://localhost:3000/auth/confirm#error=…`), a rejected one falls back to the bare Site
+  URL (`http://localhost:3000/#error=…`). So the probe reads the current Site URL _and_
+  tests any candidate, using only the publishable key. Run on 24 Aug 2026: localhost kept
+  its path, and both the production alias and the deployment-specific host came back
+  identical to a deliberately-hostile `https://evil.example.com` — i.e. rejected.
+- **Changing only the Site URL would break local development.** Supabase always allows the
+  Site URL itself, and that is the _only_ reason localhost passes today. Moving the Site URL
+  to production without adding `http://localhost:3000/**` to the additional redirect URLs in
+  the same edit takes local signup with it.
+- **This is a dashboard change, and that does not violate the no-dashboard rule.** That rule
+  is scoped to SQL and schema — auth URL configuration is neither, and there is no migration
+  that could express it. `supabase config push` was considered and **rejected**: the CLI has
+  `push` but no pull and no dry-run, so it would send a whole resolved `[auth]` block built
+  from CLI defaults and could silently flip `mailer_autoconfirm` on a project where email
+  confirmation being on is a known, documented fact.
+- **The preview wildcard is needed because the origin is request-derived.** A preview
+  deployment's host is `expense-tracker-<hash>-benbinu173s-projects.vercel.app`, and
+  `siteOrigin()` will faithfully use it; without a wildcard entry every preview's
+  confirmation link silently falls back to the Site URL.
+
+**What the deploy verified, by `curl` against the live domain** (24 Aug 2026): the build
+completed, which is itself the proof both env vars resolved; unauthenticated `/`,
+`/transactions`, `/categories`, `/account` and `/transactions/new` all 307 to `/login`;
+`/login` and `/signup` both render 200 with real content; and `/auth/confirm` with no params
+307s to `/login?notice=link-invalid`.
+
+- **An unmatched URL does not 404 for a signed-out visitor — it redirects to `/login`.**
+  `proxy.ts` runs before routing, so any path outside `PUBLIC_PREFIXES` is bounced before
+  Next resolves a route. This corrects the step-14 note claiming `app/not-found.tsx` is
+  "what a signed-out stranger guessing at URLs sees": it isn't, and it can't be. That page
+  is reached by a signed-in user on an unmatched URL, or by anyone on an unmatched path
+  _under_ a public prefix. `/login/nonsense` is the case that proves it — a real **404**
+  status carrying our copy, with zero occurrences of Next's "This page could not be found".
+  The copy still shouldn't assume an account, since that second route is public.
+
+**Still not verified after the deploy:** everything that needs a browser or a session on the
+production domain — the three `(app)` boundaries have never rendered, the skip link has
+never been tabbed to, neither account form has left a database trace, and both delete paths
+and every `/categories` write remain unexercised. A production sign-in is also untested,
+though the login form itself renders.
 
 Regenerate DB types after every migration:
 
